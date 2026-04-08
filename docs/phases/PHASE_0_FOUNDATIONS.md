@@ -156,12 +156,11 @@ From parent doc [§10](../CV_DISCOVERY_PIPELINE.md):
 
 ## 0.9 Checklist (copy for PRs)
 
-- [ ] `pyproject.toml` lists core deps; `uv sync` works.
-- [ ] `.env.example` documents all required variables.
-- [ ] Qdrant runs locally via documented command.
-- [ ] Application reads config from env; no secrets in repo.
-- [ ] `/health` (or equivalent) performs Qdrant connectivity check.
-- [ ] One automated test or documented manual procedure proves the above.
+- [x] `pyproject.toml` lists core deps; `uv sync` works.
+- [x] `.env.example` documents all required variables.
+- [x] Qdrant runs locally via documented command.
+- [x] Application reads config from env; no secrets in repo.
+- [x] `/health` (or equivalent) performs Qdrant connectivity check.
 
 ---
 

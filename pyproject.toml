@@ -1,7 +1,29 @@
 [project]
 name = "cv-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "CV discovery pipeline"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "agent-framework>=1.0.0",
+    "fastapi>=0.133.0",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.13.1",
+    "qdrant-client>=1.17.1",
+    "uvicorn>=0.41.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.9",
+]
+
+[project.scripts]
+cv-agent-serve = "cv_agent.__main__:main"
+
+[tool.ruff]
+src = ["src", "tests"]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
