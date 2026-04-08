@@ -1,0 +1,14 @@
+---
+description: Use the Microsoft Agent Framework (Python) for agents, tools, and workflows in this project
+alwaysApply: true
+---
+
+# Multi Agent Framework
+
+Use the **[Microsoft Agent Framework](https://github.com/microsoft/agent-framework)** as the **Python library** (`agent-framework` on PyPI) for agent-related code in this workspace.
+
+- **Agents**: Implement and orchestrate agents with this framework, not ad-hoc custom orchestration unless the framework cannot cover the case.
+- **Tools**: Define and wire **agent tools** (callable capabilities the model can invoke) using the framework’s tool patterns and APIs.
+- **Workflows**: Model multi-step agent flows, handoffs, and pipelines as **workflows** supported by the framework rather than one-off scripts.
+
+When adding or changing agent behavior, prefer the official Microsoft Agent Framework packages, docs, and examples so tooling stays consistent and maintainable.

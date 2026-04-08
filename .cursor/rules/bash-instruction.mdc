@@ -1,0 +1,8 @@
+---
+description: Shell — use uv for Python and tooling
+alwaysApply: true
+---
+
+# Bash / shell
+
+When executing Python or project scripts from the terminal, use **uv** so the project environment is respected.
