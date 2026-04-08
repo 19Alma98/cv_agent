@@ -21,14 +21,22 @@ cp .env.example .env
 |----------|----------|-------------|
 | `QDRANT_URL` | Yes | Qdrant REST base URL (e.g. `http://localhost:6333`) |
 | `QDRANT_API_KEY` | No | API key for managed Qdrant; omit or empty locally |
-| `EMBEDDING_API_KEY` | No* | Embedding provider API key (Phase 1+) |
-| `EMBEDDING_BASE_URL` | No | Optional base URL for embeddings |
-| `EMBEDDING_MODEL` | No* | Model or deployment id |
-| `LLM_API_KEY` | No* | Chat model API key (Phase 3) |
-| `LLM_BASE_URL` | No | Optional LLM API base URL |
-| `LLM_MODEL` | No* | Chat model id |
+| `EMBEDDING_PROVIDER` | No | `openai` (default), `azure_openai` (resource + API key), or `azure_foundry` (project + Entra ID) |
+| `AZURE_AI_PROJECT_ENDPOINT` | No‡ | Foundry **project** URL when using `azure_foundry` (not `*.openai.azure.com`) |
+| `EMBEDDING_API_KEY` | No* | API key for `openai` / `azure_openai` (ignored for `azure_foundry`) |
+| `EMBEDDING_BASE_URL` | No† | `openai`: optional API base. `azure_openai`: resource root |
+| `EMBEDDING_API_VERSION` | No | `azure_openai` only; defaults to `2024-02-01` if unset |
+| `EMBEDDING_MODEL` | No* | Model or **deployment** name (Foundry: deployment name in the project) |
+| `EMBEDDING_VECTOR_SIZE` | No | Vector dimension for Qdrant (default `1536`; must match the deployed model) |
+| `LLM_PROVIDER` | No | `openai`, `azure_openai`, or `azure_foundry` (Phase 3+; Foundry uses SDK + Entra) |
+| `LLM_API_KEY` | No* | Chat API key (not used when `LLM_PROVIDER=azure_foundry`) |
+| `LLM_BASE_URL` | No | `openai` / `azure_openai` only |
+| `LLM_API_VERSION` | No | `azure_openai` only |
+| `LLM_MODEL` | No* | Model or chat **deployment** name |
 
-\*Required when you enable ingestion or agent features in later phases.
+\*Required when you enable ingestion or agent features in later phases (except Foundry uses Entra instead of API keys).  
+†Required for `azure_openai` embeddings: `EMBEDDING_BASE_URL` on `*.openai.azure.com`.  
+‡Required for `azure_foundry`: set `AZURE_AI_PROJECT_ENDPOINT` and authenticate with `DefaultAzureCredential` (e.g. `az login`, managed identity, or env-based service principal).
 
 `pydantic-settings` loads `.env` in development if `python-dotenv` is installed (included in the dev dependency group).
 
