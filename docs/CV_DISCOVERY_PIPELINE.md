@@ -166,6 +166,16 @@ Optional **fourth** agent later: **synthesizer** that writes the HR-facing summa
 
 ## 8. Implementation phases
 
+Verbose step-by-step development guides live under **`docs/phases/`** (purpose, deliverables, schemas, checklists, pitfalls, handoffs):
+
+| Phase | Summary | Document |
+|--------|---------|----------|
+| **0 — Foundations** | Deps, `uv`, env config, Qdrant connectivity, `/health` skeleton | [PHASE_0_FOUNDATIONS.md](phases/PHASE_0_FOUNDATIONS.md) |
+| **1 — Ingestion + Qdrant** | Fetch, parse/chunk, embed, upsert; `reindex`; collection schema | [PHASE_1_INGESTION_QDRANT.md](phases/PHASE_1_INGESTION_QDRANT.md) |
+| **2 — Retrieval only** | `search_cvs`, collapse-by-`cv_id`, minimal search API (no agents) | [PHASE_2_RETRIEVAL_ONLY.md](phases/PHASE_2_RETRIEVAL_ONLY.md) |
+| **3 — Agent workflow** | Criteria + technical + soft agents, merge, `POST /discover` | [PHASE_3_AGENT_WORKFLOW.md](phases/PHASE_3_AGENT_WORKFLOW.md) |
+| **4 — Quality and operations** | Logging, tracing, cost estimates, eval set, optional feedback | [PHASE_4_QUALITY_AND_OPERATIONS.md](phases/PHASE_4_QUALITY_AND_OPERATIONS.md) |
+
 ### Phase 0 — Foundations
 
 - Python project deps: `agent-framework`, `qdrant-client`, embedding SDK, HTTP API framework (e.g. FastAPI), config via env.
