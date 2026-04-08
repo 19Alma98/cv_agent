@@ -56,7 +56,7 @@ class Settings(BaseSettings):
         description="Model id (openai) or deployment name (azure_openai / azure_foundry)",
     )
     embedding_vector_size: int = Field(
-        default=1536,
+        default=3072,
         description="Vector dimension; must match the embedding model and Qdrant collection",
     )
     qdrant_collection_name: str = Field(
