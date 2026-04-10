@@ -126,3 +126,14 @@ def embed_texts(
                 all_vectors.append([float(x) for x in vec])
 
     return all_vectors
+
+
+def embed_query(text: str, settings: Settings) -> list[float]:
+    """
+    Single-query embedding for retrieval; uses the same pipeline as batch `embed_texts`.
+    """
+    stripped = text.strip()
+    if not stripped:
+        raise EmbeddingError("Query text is empty")
+    vectors = embed_texts([stripped], settings, batch_size=1)
+    return vectors[0]

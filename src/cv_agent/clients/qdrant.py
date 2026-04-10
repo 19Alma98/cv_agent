@@ -5,7 +5,7 @@ from cv_agent.config import Settings
 
 
 def get_client(settings: Settings) -> QdrantClient:
-    kwargs: dict = {"url": settings.qdrant_url}
+    kwargs: dict = {"url": settings.qdrant_url, "timeout": settings.qdrant_timeout}
     if settings.qdrant_api_key:
         kwargs["api_key"] = settings.qdrant_api_key
     return QdrantClient(**kwargs)

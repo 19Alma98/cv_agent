@@ -1,0 +1,8 @@
+---
+description: Do not write unittests or integration tests
+alwaysApply: true
+---
+
+# Unittests / IntegrationTests
+
+Do not write unittests or integration tests

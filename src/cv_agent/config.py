@@ -63,6 +63,27 @@ class Settings(BaseSettings):
         default="cv_chunks",
         description="Qdrant collection for CV chunks / whole-document vectors",
     )
+    qdrant_timeout: int = Field(
+        default=60,
+        ge=1,
+        description="Qdrant HTTP client timeout in seconds",
+    )
+    search_max_limit_cvs: int = Field(
+        default=100,
+        ge=1,
+        description="Server cap for limit_cvs / top_k_cvs on search endpoints",
+    )
+    search_max_limit_chunks: int = Field(
+        default=200,
+        ge=1,
+        description="Server cap for limit_chunks / top_k_chunks (k′) before collapse",
+    )
+    search_chunks_per_cv: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Max chunks returned per CV after collapse (evidence spans)",
+    )
 
     cv_ingest_root: Path | None = Field(
         default=None,
