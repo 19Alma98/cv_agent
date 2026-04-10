@@ -3,255 +3,264 @@
 **Parent document:** [CV discovery pipeline](../CV_DISCOVERY_PIPELINE.md) · §3, §6, §7, §8 Phase 3  
 **Prerequisites:** [Phase 2 — Retrieval only](./PHASE_2_RETRIEVAL_ONLY.md) complete.
 
-This phase wires the **Microsoft Agent Framework** workflow: **criteria agent** → **retrieval** (tool) → **parallel technical + soft-skill raters** → **deterministic merge** → **POST /discover** response with ranked CVs, scores, and evidence.
+This phase wires the **Microsoft Agent Framework** workflow around **technical skills**: estrazione dalle fonti testuali, **match** candidato ↔ posizione, poi (per la shortlist) **combinazione** con il segnale vettoriale da Phase 2 e risposta **`POST /discover`**.
 
 ---
 
 ## 3.1 Purpose and outcomes
 
-**Goal:** HR sends a natural language query; the system returns a **shortlist** with:
+**Goal:** Per ogni candidato nella working set, il sistema produce:
 
-- **Final ranking** and **composite score** (or explicit dimension breakdown).
-- **Per-dimension scores** and **evidence snippets** tied to retrieved chunks ([§6.3](../CV_DISCOVERY_PIPELINE.md)).
-- **Criteria echo**: what the system understood as must-have / nice-to-have (auditable).
+- **Lista normalizzata** di skill tecniche emerse dal **CV** (solo ciò che è tecnico, niente narrativa generica se non serve al match).
+- **Lista** di skill tecniche **richieste** dalla **job description** (cosa serve per essere un buon candidato).
+- **Match**: **percentuale di copertura** (`skills covered` rispetto al set richiesto), elenco **match / gap** opzionale, e un **commento** sintetico leggibile da HR.
 
 **Phase complete when:**
 
-1. End-to-end **`POST /discover`** matches the intent of parent [§7](../CV_DISCOVERY_PIPELINE.md).
-2. Workflow is expressed as an **Agent Framework workflow** (not a one-off script), with **tools** for Qdrant search and optional full CV load ([§6.2](../CV_DISCOVERY_PIPELINE.md)).
-3. Agent outputs conform to **Pydantic (JSON) schemas** suitable for UI and logging.
-4. **Merge** combines vector rank signals + agent scores using **weights from the criteria agent** ([§6.4](../CV_DISCOVERY_PIPELINE.md)).
+1. End-to-end **`POST /discover`** (o endpoint dedicato “skill fit”) rispetta il contratto JSON concordato.
+2. Il flusso è espresso come **workflow Agent Framework** (sequenza + eventuale parallelismo su più CV), con **tool** per Qdrant e caricamento testo CV ([§6.2](../CV_DISCOVERY_PIPELINE.md)).
+3. Gli output degli agenti sono **Pydantic / JSON schema** stabili per UI e log.
+4. Il **merge** per il ranking finale combina **coverage skills** (e opzionalmente altri segnali) con **score vettoriale** e regole di tie-break documentate.
 
 ---
 
 ## 3.2 Workflow graph (execution order)
 
-Recommended **sequential + fan-out** pattern ([§6.4](../CV_DISCOVERY_PIPELINE.md)):
+Flusso consigliato: **una volta** estrazione requisiti da JD, **per ogni CV** estrazione skills + match; retrieval opzionale a monte per scegliere i CV da valutare.
 
 ```text
-1. Criteria agent
-   Input: HR query (+ optional org defaults)
-   Output: JobSpec (structured) + retrieval_query_text + optional metadata filters
+0. (Opzionale) Input HR
+   - Se l’input è solo una query breve, uno step leggero può produrre o arricchire il testo “job description” usato dall’agente 2.
+   - Se la JD è già fornita intera, saltare o ridurre questo step.
 
-2. Embed retrieval_query_text (or multiple strings if you extend JobSpec)
-   Call existing embed_query from Phase 2
+1. Phase 2 — Retrieval (tool + embed)
+   search_cvs(...) → working set di cv_id + chunk (o testo via get_cv_document)
 
-3. search_cvs(retrieval_query_text, filters from JobSpec, limits)
-   Output: list of { cv_id, chunk evidence, vector-derived rank/score }
+2. Agente A — Estrazione skill dal CV
+   Input: testo CV (chunk top-k e/o full document, con limite lunghezza)
+   Output: CandidateSkills (solo skill tecniche, con sinonimi normalizzati se definiti nello schema)
 
-4. Working set truncation
-   If needed, pass only top N CVs (e.g. 10–20) to expensive LLM steps
+3. Agente B — Estrazione skill dalla job description
+   Input: testo job description (o testo derivato dalla query HR)
+   Output: JobRequiredSkills (skill tecniche necessarie per un buon fit; opzionale must_have / nice_to_have)
 
-5. Parallel (conceptually) — Technical rater + Soft-skills rater
-   Each input: JobSpec + same chunk bundle per cv_id (+ optional full CV from get_cv_document)
-   Each output: Scores [0,1] per named criterion + evidence strings
+4. Agente C — Match skills + commento
+   Input: CandidateSkills + JobRequiredSkills
+   Output: SkillMatchResult (percentuale copertura, matched/missing opzionali, commento breve)
 
-6. Merge (deterministic Python)
-   Weighted combination + tie-break rules → final ordering
+5. Merge (deterministico, Python)
+   Per ogni cv_id: ranking da combinare es. w_cov * coverage_pct + w_v * v_norm (normalizzato sul batch)
+   Tie-break: coverage, poi score vettoriale grezzo, poi cv_id stabile
 
-7. Optional: short narrative block (template from scores or small synthesizer agent — parent §6.1 optional fourth agent)
+6. (Opzionale) Sintesi batch per HR: template dai punteggi o piccolo agente narrativo
 ```
 
-Use the framework’s primitives for **sequential steps**, **parallel branches**, and **tool invocation**; avoid ad-hoc global state — pass explicit context objects between steps.
+Usa i primitivi del framework per **step sequenziali** e **fan-out** sui CV; passa **oggetti di contesto espliciti** tra gli step (niente stato globale ad hoc).
 
 ---
 
-## 3.3 Agent 1 — Criteria / planner
+## 3.3 Agente A — Estrazione skill tecniche dal CV
 
-**Role:** Normalize messy HR language into a **checkable** specification and a **retrieval-optimized** query string ([§3](../CV_DISCOVERY_PIPELINE.md), table in [§6.1](../CV_DISCOVERY_PIPELINE.md)).
+**Ruolo:** Dal **solo testo del CV**, estrarre **informazioni sulle skill tecniche** del candidato (linguaggi, framework, tool, cloud, DB, metodologie strettamente tecniche). Escludere o deprioritizzare contenuti non utili al match tecnico (hobby generici, testo boilerplate) salvo policy prodotto diversa.
 
-**Suggested `JobSpec` fields (Pydantic):**
+**Input:** `cv_id` (per tracciamento), `cv_text` (o lista sezioni).
 
-| Field | Purpose |
-|--------|---------|
-| `must_have` | List of requirements (skill, level hint, years if any) |
-| `nice_to_have` | Same structure, lower priority |
-| `seniority` | e.g. junior / mid / senior / lead — free text or enum |
-| `domain` | e.g. fintech, healthcare |
-| `constraints` | location, language, employment type |
-| `retrieval_query` | One string optimized for embedding (synonyms, stack names) |
-| `retrieval_queries` | Optional list if you implement multi-vector search later |
-| `weights` | Numeric weights for merge: e.g. `technical`, `soft`, `vector` |
-| `qdrant_filter` | Optional structured filter compatible with your payload schema |
+**Output schema (esempio Pydantic):**
 
-**Prompting guidelines:**
+| Campo | Scopo |
+|--------|--------|
+| `cv_id` | Allineamento al batch |
+| `skills` | Lista di skill con `name` canonico + `aliases` opzionali dal testo |
+| `evidence` | Opzionale: 1 stringa breve per skill “non ovvia” (citazione/parafrasi) |
+| `notes` | Opzionale: ambiguità (“menziona Java ma non anni”) |
 
-- Ask the model to **avoid** inventing hard numbers not implied by the user unless marked as inference.
-- Require **valid JSON** matching the schema; use structured output mode if your provider supports it.
-- Include **short rationale** field optional for debugging (not shown to HR if too noisy).
+**Linee guida prompt:**
+
+- Output **JSON valido** conforme allo schema; structured output se supportato.
+- Non inventare skill non supportate dal testo fornito.
+- Normalizzare sinonimi (es. “K8s” → `Kubernetes`) se lo schema prevede un vocabolario controllato o istruzioni di normalizzazione.
 
 ---
 
-## 3.4 Tool: `search_cvs`
+## 3.4 Agente B — Estrazione skill tecniche dalla job description
 
-Wire Phase 2’s function as a **framework tool** with a schema derived from its signature:
+**Ruolo:** Dal **testo della job description** (o dal testo che rappresenta il ruolo), estrarre le **skill tecniche necessarie** per essere un **buon candidato** (stack atteso, tool, domini tecnici). Opzionale: separare **must_have** vs **nice_to_have** se utile al calcolo della percentuale.
 
-- Parameters: `query`, `top_k_cvs`, `top_k_chunks`, optional `filters`.
-- Returns: serialized `RetrievalResult` the agents do not mutate.
+**Input:** `job_description_text` (stringa); opzionale `job_id` per log.
 
-The **criteria agent** does not call Qdrant directly; the **workflow orchestration** calls `embed` + `search_cvs` using the criteria output (cleaner tracing).
+**Output schema (esempio):**
 
----
+| Campo | Scopo |
+|--------|--------|
+| `required_skills` | Lista skill attese (stessa granularità/convenzioni dell’agente A per favorire il match) |
+| `must_have` / `nice_to_have` | Opzionale: sottoinsiemi per pesare la coverage |
+| `seniority_hints` | Opzionale: solo se serve downstream (non obbligatorio per il match puro skills) |
 
-## 3.5 Tool: `get_cv_document` (optional but valuable)
+**Linee guida prompt:**
 
-**Role:** Load **full CV text** or all chunks from your DB when top-k chunks are insufficient ([§6.2](../CV_DISCOVERY_PIPELINE.md)).
-
-**Behavior:**
-
-- Input: `cv_id`
-- Output: plain text or list of sections
-- Enforce **max length** before sending to LLM (truncate with ellipsis + note in evidence)
-
-If not implemented, raters use **only** retrieved chunks (acceptable for v1 if chunks are rich).
+- Discriminare skill **esplicitamente richieste** da competenze generiche (“ottima conoscenza Office”) se il prodotto le esclude dal set “tecnico”.
+- Se la JD è vaga, il modello può inferire stack probabile ma conviene campo `inference: true` o `confidence` per audit.
 
 ---
 
-## 3.6 Agent 2 — Technical rater
+## 3.5 Agente C — Match candidato ↔ JD e commento
 
-**Input:** `JobSpec` + for one `cv_id` the bundle of chunk texts (and scores).
+**Ruolo:** Confrontare **CandidateSkills** (output A) e **JobRequiredSkills** (output B); calcolare **percentuale di skill coperte** e produrre un **commento** sintetico per HR.
 
-**Output schema (example):**
+**Input:** Output strutturati di A e B (non serve re-inviare tutto il CV/JD se i JSON sono sufficienti).
+
+**Definizione consigliata di `skills_covered_pct`:**
+
+- Denominatore: numero di skill in `JobRequiredSkills` (o solo `must_have` se usate due liste).
+- Numeratore: skill richieste per cui esiste un match accettato (equivalenza/sinonimo decisa dal modello secondo regole fisse nello prompt o da lookup).
+- Valore **0–100** intero o float a 1 decimale; documentare se `nice_to_have` entra nel denominatore.
+
+**Output schema (esempio):**
 
 ```json
 {
   "cv_id": "...",
-  "criteria_scores": {
-    "java_proficiency": 0.85,
-    "spring_ecosystem": 0.7,
-    "microservices": 0.6
-  },
-  "evidence": {
-    "java_proficiency": "Quote or paraphrase from chunk 2...",
-    "spring_ecosystem": "..."
-  },
-  "gaps": ["No explicit Kubernetes mentioned"]
+  "skills_covered_pct": 72.5,
+  "matched_skills": ["Python", "PostgreSQL"],
+  "missing_skills": ["Kubernetes"],
+  "partial_matches": [],
+  "comment": "Forte allineamento su backend e dati; manca esperienza esplicita su orchestrazione container."
 }
 ```
 
-**Rules ([§6.3](../CV_DISCOVERY_PIPELINE.md)):**
+**Regole:**
 
-- Scores in **[0, 1]** with **named dimensions** aligned to `JobSpec` (dynamic list or fixed template — if dynamic, merge step must map names safely).
-- **Evidence:** 1–3 short strings per non-trivial criterion; must cite or closely paraphrase provided chunks (reduces hallucination).
-
-**Batching:** For many CVs, either **one LLM call per CV** (simple, more cost) or **batched multi-CV prompt** (complex, cheaper). Start with **per-CV** for clarity.
+- Il **commento** deve essere coerente con **matched** / **missing**; evitare contraddizioni con le liste.
+- Opzionale: seconda passata **deterministica** che ricalcola la % dalle liste per evitare errori aritmetici del modello (consigliato in produzione).
 
 ---
 
-## 3.7 Agent 3 — Soft-skills rater
+## 3.6 Tool: `search_cvs`
 
-Same contract as technical rater with different criterion names, e.g. `communication`, `leadership`, `collaboration`, `ownership`.
+Come in Phase 2, esposto come **tool** del framework:
 
-**Orthogonality:** Keep prompts from double-counting the same bullet as both “technical depth” and “leadership” unless justified.
+- Parametri: `query`, `top_k_cvs`, `top_k_chunks`, filtri opzionali.
+- Restituisce `RetrievalResult` immutabile per gli agenti.
+
+L’orchestrazione (non l’agente B) invoca **embed + search_cvs** usando la query HR o una `retrieval_query` derivata, per costruire la working set.
 
 ---
 
-## 3.8 Merge step (deterministic)
+## 3.7 Tool: `get_cv_document` (consigliato per l’agente A)
 
-**Inputs:**
+**Ruolo:** Caricare **testo CV completo** o tutte le sezioni quando i chunk non bastano ([§6.2](../CV_DISCOVERY_PIPELINE.md)).
 
-- Vector-derived rank or normalized score per `cv_id` from Phase 2 collapse.
-- Technical `criteria_scores` and soft `criteria_scores`.
-- `JobSpec.weights` (and default weights if missing).
+- Input: `cv_id`
+- Output: testo o sezioni
+- **Limite massimo** di caratteri prima dell’LLM (troncare con nota in metadata)
 
-**Suggested v1 formula (example):**
+---
 
-1. Normalize vector score per batch (e.g. min-max across the working set) → `v_norm`.
-2. `technical_avg` = mean of technical scores (or weighted by criterion importance from JobSpec if provided).
-3. `soft_avg` = mean of soft scores.
-4. `composite = w_v * v_norm + w_t * technical_avg + w_s * soft_avg` with weights summing to 1.
+## 3.8 Merge step (deterministico)
 
-**Tie-break:** Higher `technical_avg`, then higher vector raw score, then stable `cv_id` sort.
+**Input per CV:** `skills_covered_pct` (o score 0–1 derivato), score vettoriale normalizzato sul batch, pesi opzionali da config o da uno step “planner” leggero.
 
-**Output:** Sorted list of records for API response: `cv_id`, `composite`, breakdown, evidence objects, optional `gaps`.
+**Formula esempio:**
 
-**Calibration note ([§1.2](../CV_DISCOVERY_PIPELINE.md)):** Treat LLM scores as **relative within the batch**; document this in API field descriptions for consumers.
+1. `cov_norm = skills_covered_pct / 100`
+2. `v_norm` = normalizzazione min-max degli score retrieval nella working set
+3. `composite = w_cov * cov_norm + w_v * v_norm` con pesi che sommano a 1
+
+**Tie-break:** `skills_covered_pct` decrescente, poi score vettoriale grezzo, poi `cv_id`.
+
+**Output API:** per ogni risultato: `rank`, `cv_id`, `composite_score`, `skill_match` (oggetto con %, liste, commento), `retrieval_chunks` opzionali.
 
 ---
 
 ## 3.9 POST /discover contract
 
-**Request ([§7](../CV_DISCOVERY_PIPELINE.md)):**
+**Request (illustrativo):**
 
 ```json
 {
-  "query": "We need a Java tech lead with mentoring experience",
+  "query": "Senior backend Python, PostgreSQL, Docker",
+  "job_description": "Optional full JD text if different from query...",
   "top_k": 20
 }
 ```
 
-**Response (illustrative — adjust to your UI):**
+Se `job_description` è assente, il testo usato dall’**agente B** può essere la `query` o un’estensione generata nello step opzionale §3.2.
+
+**Response (illustrativo):**
 
 ```json
 {
-  "job_spec": { ... },
+  "job_skills": { "required_skills": ["Python", "PostgreSQL", "Kubernetes"] },
   "results": [
     {
       "rank": 1,
       "cv_id": "...",
-      "composite_score": 0.91,
-      "breakdown": {
-        "vector": 0.88,
-        "technical": 0.92,
-        "soft": 0.85
+      "composite_score": 0.88,
+      "skill_match": {
+        "skills_covered_pct": 66.7,
+        "matched_skills": ["Python", "PostgreSQL"],
+        "missing_skills": ["Kubernetes"],
+        "comment": "..."
       },
-      "evidence": { ... },
-      "retrieval_chunks": [ ... ]
+      "breakdown": { "vector": 0.9, "skills_coverage": 0.667 },
+      "retrieval_chunks": []
     }
   ],
   "meta": {
-    "model_ids": { "criteria": "...", "technical": "...", "soft": "..." },
-    "latency_ms": { ... },
-    "ingestion_hint": "embedding_model_id used for search"
+    "model_ids": { "cv_skills": "...", "jd_skills": "...", "matcher": "..." },
+    "latency_ms": {}
   }
 }
 ```
 
-**Parameters:**
-
-- `top_k` maps to **final** shortlist size; internally you may use larger retrieval k′ and smaller scoring set ([§1.2](../CV_DISCOVERY_PIPELINE.md)).
+Parametro `top_k`: taglia finale della shortlist; internamente si può recuperare un k′ più grande e poi applicare agenti A/C solo sui primi N CV.
 
 ---
 
 ## 3.10 Error handling and guardrails
 
-- **Criteria parse failure:** Return `400` with validation errors; do not call retrieval.
-- **Empty retrieval:** Return empty `results` with explanation in `meta`.
-- **LLM timeout / rate limit:** Partial results policy — either fail whole request with `503` or return retrieval-only ranking with `meta.warning` (choose one and document).
-- **PII:** Avoid logging full CV text at INFO; use redaction or ids only ([§7](../CV_DISCOVERY_PIPELINE.md)).
+- **JD vuota / query non parsabile:** `400` con dettagli; non chiamare retrieval se manca input minimo.
+- **Retrieval vuoto:** `results` vuoti e spiegazione in `meta`.
+- **Timeout LLM:** policy unica (es. `503` o ranking solo vettoriale con `meta.warning`).
+- **PII:** non loggare CV interi a INFO; usare id e redazione ([§7](../CV_DISCOVERY_PIPELINE.md)).
+- **Allucinazioni sul match:** preferire **riconciliazione deterministica** della % dopo l’agente C.
 
 ---
 
 ## 3.11 Testing
 
-- **Golden-path test** with mocked LLM responses (fixed JSON) to test merge and API shape.
-- **Integration test** (gated): small real query against staging Qdrant + test CVs.
-- **Contract tests:** Pydantic models round-trip JSON used by the frontend.
+- Test **golden path** con JSON fissi da A/B/C per verificare merge e forma della risposta.
+- Test integrazione (opzionale): Qdrant staging + CV di prova.
+- Contract test sui modelli Pydantic.
 
 ---
 
 ## 3.12 Pitfalls
 
-- **Scoring 50 CVs × 2 agents** — cost explosion; enforce **working set** size ([§1.2](../CV_DISCOVERY_PIPELINE.md)).
-- **Schema drift** between agents and merge — use shared enums / field lists from `JobSpec`.
-- **Bypassing Agent Framework** “just once” — tends to stick; keep workflow in the framework for maintainability ([workspace rules](../../.cursor/rules/agent-framework.mdc)).
+- **Costo:** N CV × (agente A + agente C) + 1 × agente B; limitare N e riusare output B per tutto il batch.
+- **Allineamento lessicale:** A e B devono usare **stesse convenzioni** di naming (prompt + glossario o post-processing).
+- **Percentuale ambigua:** definire sempre cosa è nel denominatore (solo must-have o tutte le skill estratte).
 
 ---
 
 ## 3.13 Checklist
 
-- [ ] Criteria agent + `JobSpec` schema + structured output.
-- [ ] Workflow wires embed + `search_cvs` + truncation.
-- [ ] Technical + soft agents with evidence fields.
-- [ ] Merge implements weights + tie-breaks.
-- [ ] `POST /discover` documented and implemented.
-- [ ] Tools registered per Agent Framework patterns.
-- [ ] Basic tests with mocked LLM and one integration path.
+- [ ] Schemi Pydantic per `CandidateSkills`, `JobRequiredSkills`, `SkillMatchResult`.
+- [ ] Agente A (CV skills), B (JD skills), C (match + commento) registrati nel workflow framework.
+- [ ] Tool `search_cvs` + opzionale `get_cv_document` collegati.
+- [ ] Merge con pesi + tie-break; risposta `POST /discover` allineata.
+- [ ] Test con LLM mockati e un percorso integrazione.
 
 ---
 
 ## 3.14 Handoff to Phase 4
 
-Phase 4 adds **observability**, **cost/latency accounting**, **evaluation sets**, and optional **human feedback** on weights ([§8 Phase 4](../CV_DISCOVERY_PIPELINE.md)).
+Phase 4 aggiunge **osservabilità**, **costi/latenza**, **evaluation set** e feedback umano ([§8 Phase 4](../CV_DISCOVERY_PIPELINE.md)).
 
 Next: [Phase 4 — Quality and operations](./PHASE_4_QUALITY_AND_OPERATIONS.md).
+
+---
+
+## 3.15 Riferimento — modello precedente (criteria + rater tecnico/soft)
+
+Il documento originale prevedeva **criteria/planner**, **technical rater**, **soft-skills rater** e merge su dimensioni 0–1. Se serve ancora scoring **soft skills** o criteri non riducibili a liste di skill, si può **aggiungere** un rater parallelo dopo il match skills oppure arricchire il commento dell’agente C con dimensioni soft — senza sostituire il flusso skills-first sopra, a meno di requisito prodotto esplicito.
