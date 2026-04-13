@@ -110,6 +110,48 @@ class Settings(BaseSettings):
         description="OpenAI: model name. Azure: chat deployment name",
     )
 
+    discover_w_coverage: float = Field(
+        default=0.5,
+        ge=0.0,
+        description="Weight for normalized skills coverage in composite score",
+    )
+    discover_w_vector: float = Field(
+        default=0.5,
+        ge=0.0,
+        description="Weight for min-max normalized vector retrieval score",
+    )
+    discover_max_cv_text_chars: int = Field(
+        default=120_000,
+        ge=4096,
+        description="Max characters passed to the CV skills agent",
+    )
+    discover_retrieval_limit_cvs: int = Field(
+        default=40,
+        ge=1,
+        description="Internal top_k_cvs (k′) before final shortlist",
+    )
+    discover_retrieval_limit_chunks: int = Field(
+        default=120,
+        ge=1,
+        description="Internal top_k_chunks before collapse",
+    )
+    discover_max_cvs_to_score: int = Field(
+        default=25,
+        ge=1,
+        description="Cap on CVs processed by LLM agents per request (cost control)",
+    )
+    discover_llm_timeout_s: float = Field(
+        default=120.0,
+        ge=5.0,
+        description="Per agent run timeout (seconds)",
+    )
+    discover_llm_concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=32,
+        description="Max parallel per-CV LLM pipelines",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

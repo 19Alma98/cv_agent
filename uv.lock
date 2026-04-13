@@ -1039,6 +1039,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "agent-framework" },
+    { name = "agent-framework-openai" },
     { name = "azure-ai-projects" },
     { name = "azure-identity" },
     { name = "fastapi" },
@@ -1059,6 +1060,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "agent-framework", specifier = ">=1.0.0" },
+    { name = "agent-framework-openai", specifier = ">=1.0.0" },
     { name = "azure-ai-projects", specifier = ">=1.0.0" },
     { name = "azure-identity", specifier = ">=1.14.0" },
     { name = "fastapi", specifier = ">=0.133.0" },

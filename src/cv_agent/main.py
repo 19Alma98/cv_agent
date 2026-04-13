@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from qdrant_client import QdrantClient
 
+from cv_agent.api.routes.discover import router as discover_router
 from cv_agent.api.routes.health import router as health_router
 from cv_agent.api.routes.retrieve import router as retrieve_router
 from cv_agent.clients.qdrant import get_client
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(retrieve_router)
+    app.include_router(discover_router)
     return app
 
 
