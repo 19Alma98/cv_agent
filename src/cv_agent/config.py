@@ -152,6 +152,14 @@ class Settings(BaseSettings):
         description="Max parallel per-CV LLM pipelines",
     )
 
+    cors_origins: str = Field(
+        default="http://127.0.0.1:5173,http://localhost:5173",
+        description=(
+            "Comma-separated browser origins for CORS. "
+            "If empty (e.g. CORS_ORIGINS= in .env), dev defaults for Vite are applied in code."
+        ),
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
