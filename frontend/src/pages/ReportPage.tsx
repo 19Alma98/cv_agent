@@ -37,12 +37,8 @@ function ResultCard({ row }: { row: DiscoverResultRow }) {
           <dd>{sm.skills_covered_pct.toFixed(0)}%</dd>
         </div>
         <div>
-          <dt>Vector (norm.)</dt>
+          <dt>Similarity score</dt>
           <dd>{row.breakdown.vector.toFixed(3)}</dd>
-        </div>
-        <div>
-          <dt>Skills cov. (norm.)</dt>
-          <dd>{row.breakdown.skills_coverage.toFixed(3)}</dd>
         </div>
       </dl>
       <TagList title="Match" items={sm.matched_skills} />
@@ -121,7 +117,7 @@ export function ReportPage() {
       ) : null}
 
       <section className="card">
-        <h2>Skill richieste (dal JD)</h2>
+        <h2>Skill richieste</h2>
         <div className="jd-skills">
           <TagList title="Richieste" items={data.job_skills.required_skills} />
           <TagList title="Must-have" items={data.job_skills.must_have} />
