@@ -83,6 +83,9 @@ export function ReportPage() {
 
   const meta = data.meta;
   const warnings = meta?.warnings ?? [];
+  const job = data.job_skills;
+  const primarySkillsTitle = job.must_have.length > 0 ? "Must-have" : "Richieste";
+  const primarySkillsItems = job.must_have.length > 0 ? job.must_have : job.required_skills;
 
   return (
     <div className="page">
@@ -119,9 +122,8 @@ export function ReportPage() {
       <section className="card">
         <h2>Skill richieste</h2>
         <div className="jd-skills">
-          <TagList title="Richieste" items={data.job_skills.required_skills} />
-          <TagList title="Must-have" items={data.job_skills.must_have} />
-          <TagList title="Nice-to-have" items={data.job_skills.nice_to_have} />
+          <TagList title={primarySkillsTitle} items={primarySkillsItems} />
+          <TagList title="Nice-to-have" items={job.nice_to_have} />
         </div>
       </section>
 
